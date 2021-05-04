@@ -1,0 +1,18 @@
+[flake8]
+extend-ignore =
+    # Black config files
+    E203,
+    W503
+
+extend-exclude =
+    venv,
+    .venv
+
+max-line-length = 88
+
+max-complexity = 10
+
+docstring-convention = google
+
+per-file-ignores =
+    tests/*:S101
