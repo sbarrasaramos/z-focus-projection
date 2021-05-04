@@ -1,15 +1,15 @@
-from typing import Tuple
-
-import numpy as np
-import cv2
 import collections.abc
-import matplotlib.pyplot as plt
-import more_itertools
 import math
 
+import cv2
+import matplotlib.pyplot as plt
+import more_itertools
+import numpy as np
+
 DEFAULT_MOVING_AVG_WINDOW = (150, 150)
-DEFAULT_CANNY_THRESHOLDS = (10, 100) # 10, 20
+DEFAULT_CANNY_THRESHOLDS = (10, 100)  # 10, 20
 DEFAULT_PLOT_SIZE = (1000, 600)
+
 
 def apply_canny(
     image: np.ndarray,
@@ -22,7 +22,7 @@ def apply_canny(
 def moving_average(
     image: np.ndarray,
     window_x: int = DEFAULT_MOVING_AVG_WINDOW[0],
-    window_y: int = DEFAULT_MOVING_AVG_WINDOW[1]
+    window_y: int = DEFAULT_MOVING_AVG_WINDOW[1],
 ) -> np.ndarray:
     return cv2.blur(image, (window_x, window_y))
 
@@ -61,7 +61,8 @@ class Stack(collections.abc.MutableSequence):
 class ZStack(Stack):
     def row_sharp_projection(self):
 
-        ### We need to plot the canny edges results of one or more images for the user to calibrate on the go
+        # We need to plot the canny edges results of one or more images
+        # for the user to calibrate on the go
         # edges_stack = ZStack([apply_canny(image) for image in self])
         # for image in edges_stack.images:
         #     plot_images(image)
@@ -71,15 +72,16 @@ class ZStack(Stack):
             for image in self
         ]
         sharpest_row_indexes = np.argmax(np.stack(canny_xwise_means, axis=-1), axis=1)
-        smooth_sharpest_row_indexes = np.round(moving_average(sharpest_row_indexes).ravel()).astype(
-            np.int32
-        )
+        smooth_sharpest_row_indexes = np.round(
+            moving_average(sharpest_row_indexes).ravel()
+        ).astype(np.int32)
 
         # I think we should plot this to help the user... --> Parameter calibration
         plt.plot(smooth_sharpest_row_indexes)
         plt.show()
 
-        # Take the line of the image corresponding to the index and stack it into a new image
+        # Take the line of the image corresponding to the index
+        # and stack it into a new image
         sharp_image_matrix = np.stack(
             [
                 self[sharp_im][line, :]
@@ -93,7 +95,8 @@ class ZStack(Stack):
     def piece_sharp_projection(self, piece_size):
         edges_stack = ZStack([apply_canny(image) for image in self])
 
-        # We need to plot the canny edges results of one or more images for the user to calibrate on the go
+        # We need to plot the canny edges results of one or more images
+        # for the user to calibrate on the go
 
         piece_number = int(math.ceil(edges_stack.images[0].shape[1] / piece_size))
         canny_xwise_means = [
@@ -110,17 +113,19 @@ class ZStack(Stack):
         # for line, sharp_indexes in enumerate(sharpest_piece_indexes):
         #     index_line = []
         #     for piece, sharp_index in enumerate(sharp_indexes):
-        #         index_chunk = self[sharp_index][line, piece*piece_size:(piece+1)*piece_size].tolist()
+        #         index_chunk = self[sharp_index][
+        #           line, piece*piece_size:(piece+1)*piece_size
+        #         ].tolist()
         #         index_line = [*index_line, *index_chunk]
         #     new_matrix.append(index_line)
         # sharp_image_matrix = np.array(new_matrix)
 
-        #Option 2: build index matrix and then the image: allows for moving average
+        # Option 2: build index matrix and then the image: allows for moving average
         sharpest_pixel_indexes = []
         for line, sharp_indexes in enumerate(sharpest_piece_indexes):
             index_line = []
             for piece, sharp_index in enumerate(sharp_indexes):
-                index_chunk = [sharp_index]*piece_size
+                index_chunk = [sharp_index] * piece_size
                 index_line = [*index_line, *index_chunk]
             sharpest_pixel_indexes.append(index_line)
         sharpest_indexes_array = np.array(sharpest_pixel_indexes)
@@ -131,7 +136,12 @@ class ZStack(Stack):
         plt.plot(sharpest_piece_indexes)
         plt.show()
 
-        sharp_image_matrix = sum([np.multiply(image, smooth_sharpest_indexes_array == z_coord) for z_coord, image in enumerate(self.images)])
+        sharp_image_matrix = sum(
+            [
+                np.multiply(image, smooth_sharpest_indexes_array == z_coord)
+                for z_coord, image in enumerate(self.images)
+            ]
+        )
 
         return sharp_image_matrix, "foo"
 
@@ -197,14 +207,14 @@ if __name__ == "__main__":
     # Option 2: using the algorithm on a 2D Hyperstack (Z & t, or Z & x,...)
     my_hyperstack = HyperStack.frompath(
         31,
-        file_path=r'C:\Users\sbarr\Documents\PhD\Experiments\Nucleus\03-05-2021\Green03052021.tif'
+        file_path=r"C:\Users\sbarr\Documents\PhD\Experiments\
+        Nucleus\03-05-2021\Green03052021.tif",
     )
     sharp_stack, _ = my_hyperstack.piece_sharp_projection(256)
     # sharp_stack, _ = my_hyperstack.row_sharp_projection()
     sharp_stack.normalize()
     cv2.imwritemulti(
-        r'C:\Users\sbarr\Documents\PhD\Experiments\Nucleus\03-05-2021\SharpV02_Green03052021.tif',
-        sharp_stack.images
+        r"C:\Users\sbarr\Documents\PhD\Experiments\Nucleus\
+        03-05-2021\SharpV02_Green03052021.tif",
+        sharp_stack.images,
     )
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
