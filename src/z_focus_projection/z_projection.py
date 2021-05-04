@@ -1,17 +1,16 @@
 import collections.abc
 import math
+from typing import Tuple
 
 import cv2
-import matplotlib.pyplot as plt
 import more_itertools
 import numpy as np
 
 DEFAULT_MOVING_AVG_WINDOW = (150, 150)
 DEFAULT_CANNY_THRESHOLDS = (10, 100)  # 10, 20
-DEFAULT_PLOT_SIZE = (1000, 600)
 
 
-def apply_canny(
+def _apply_canny(
     image: np.ndarray,
     threshold_1: int = DEFAULT_CANNY_THRESHOLDS[0],
     threshold_2: int = DEFAULT_CANNY_THRESHOLDS[1],
@@ -19,15 +18,26 @@ def apply_canny(
     return cv2.Canny(image, threshold_1, threshold_2)
 
 
-def moving_average(
-    image: np.ndarray,
+def _matrix_blur(
+    matrix: np.ndarray,
     window_x: int = DEFAULT_MOVING_AVG_WINDOW[0],
     window_y: int = DEFAULT_MOVING_AVG_WINDOW[1],
 ) -> np.ndarray:
-    return cv2.blur(image, (window_x, window_y))
+    """
+    Returns the 2D moving average of the input matrix over the specified window
+    :param matrix: Input array/image
+    :param window_x: Size of column subsets for the moving average
+    :param window_y: Size of row subsets for the moving average
+    :return: Output array/image
+    """
+    return cv2.blur(matrix, (window_x, window_y))
 
 
 class Stack(collections.abc.MutableSequence):
+    """
+    Class containing a one-dimensional (in space or time) stack of images
+    """
+
     def __init__(self, image_vector=None):
         if image_vector is None:
             image_vector = []
@@ -59,26 +69,44 @@ class Stack(collections.abc.MutableSequence):
 
 
 class ZStack(Stack):
-    def row_sharp_projection(self):
+    """
+    Class containing a one-dimensional stack of images
+    in the direction perpendicular to them
+    """
 
-        # We need to plot the canny edges results of one or more images
-        # for the user to calibrate on the go
-        # edges_stack = ZStack([apply_canny(image) for image in self])
-        # for image in edges_stack.images:
-        #     plot_images(image)
+    def row_sharp_projection(
+        self,
+        canny_threshold_1=DEFAULT_CANNY_THRESHOLDS[0],
+        canny_threshold_2=DEFAULT_CANNY_THRESHOLDS[1],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+
+        """
+        Returns a single image containing the sharpest focus of the stack for every row,
+        by calculating the row-wise average of the result of an edge detection algorithm
+        and picking the highest value
+        :param canny_threshold_1: Edge detection lower threshold
+        :param canny_threshold_2: Edge detection upper threshold
+        :return:
+        """
+
+        # Implement and insert tuning_canny_parameters
 
         canny_xwise_means = [
-            np.mean(apply_canny(image).astype(np.float32) / 255, axis=1)
+            np.mean(
+                _apply_canny(image, canny_threshold_1, canny_threshold_2).astype(
+                    np.float32
+                )
+                / 255,
+                axis=1,
+            )
             for image in self
         ]
         sharpest_row_indexes = np.argmax(np.stack(canny_xwise_means, axis=-1), axis=1)
         smooth_sharpest_row_indexes = np.round(
-            moving_average(sharpest_row_indexes).ravel()
+            _matrix_blur(sharpest_row_indexes).ravel()
         ).astype(np.int32)
 
-        # I think we should plot this to help the user... --> Parameter calibration
-        plt.plot(smooth_sharpest_row_indexes)
-        plt.show()
+        # Implement and insert tuning_moving_average
 
         # Take the line of the image corresponding to the index
         # and stack it into a new image
@@ -92,49 +120,42 @@ class ZStack(Stack):
 
         return sharp_image_matrix, smooth_sharpest_row_indexes
 
-    def piece_sharp_projection(self, piece_size):
-        edges_stack = ZStack([apply_canny(image) for image in self])
+    def roi_sharp_projection(self, roi_size) -> Tuple[np.ndarray, np.ndarray]:
 
-        # We need to plot the canny edges results of one or more images
-        # for the user to calibrate on the go
+        """
+        Returns a single image containing the sharpest focus of the stack for every ROI,
+        by calculating the ROI-wise average of the result of an edge detection algorithm
+        and picking the highest value
+        :param roi_size: Number of pixels in the x direction of the ROI
+        :return:
+        """
 
-        piece_number = int(math.ceil(edges_stack.images[0].shape[1] / piece_size))
+        edges_stack = ZStack([_apply_canny(image) for image in self])
+
+        # Implement and insert tuning_canny_parameters
+
+        piece_number = int(math.ceil(edges_stack.images[0].shape[1] / roi_size))
         canny_xwise_means = [
             [
-                np.mean(apply_canny(piece).astype(np.float32) / 255, axis=1)
+                np.mean(_apply_canny(piece).astype(np.float32) / 255, axis=1)
                 for piece in np.array_split(image, piece_number, axis=1)
             ]
             for image in edges_stack
         ]
         sharpest_piece_indexes = np.argmax(canny_xwise_means, axis=0).T
 
-        # Option 1: build image matrix from sharp_indexes
-        # new_matrix = []
-        # for line, sharp_indexes in enumerate(sharpest_piece_indexes):
-        #     index_line = []
-        #     for piece, sharp_index in enumerate(sharp_indexes):
-        #         index_chunk = self[sharp_index][
-        #           line, piece*piece_size:(piece+1)*piece_size
-        #         ].tolist()
-        #         index_line = [*index_line, *index_chunk]
-        #     new_matrix.append(index_line)
-        # sharp_image_matrix = np.array(new_matrix)
-
-        # Option 2: build index matrix and then the image: allows for moving average
+        # Build whole index matrix and then the image: allows for moving average
         sharpest_pixel_indexes = []
         for line, sharp_indexes in enumerate(sharpest_piece_indexes):
             index_line = []
             for piece, sharp_index in enumerate(sharp_indexes):
-                index_chunk = [sharp_index] * piece_size
+                index_chunk = [sharp_index] * roi_size
                 index_line = [*index_line, *index_chunk]
             sharpest_pixel_indexes.append(index_line)
         sharpest_indexes_array = np.array(sharpest_pixel_indexes)
-        smooth_sharpest_indexes_array = np.round(moving_average(sharpest_indexes_array))
+        smooth_sharpest_indexes_array = np.round(_matrix_blur(sharpest_indexes_array))
 
-        # I think we should plot this to help the user and implement
-        # something to be able to select the parameters on the go
-        plt.plot(sharpest_piece_indexes)
-        plt.show()
+        # Implement and insert tuning_moving_average
 
         sharp_image_matrix = sum(
             [
@@ -143,10 +164,15 @@ class ZStack(Stack):
             ]
         )
 
-        return sharp_image_matrix, "foo"
+        return sharp_image_matrix, smooth_sharpest_indexes_array
 
 
 class HyperStack(collections.abc.Sequence):
+    """
+    Class containing a two-dimensional stack of images:
+    one of the directions is perpendicular to them
+    """
+
     def __len__(self) -> int:
         return len(self.z_stacks)
 
@@ -166,30 +192,24 @@ class HyperStack(collections.abc.Sequence):
         return cls(z_size, cv2.imreadmulti(file_path)[1])
 
     def row_sharp_projection(self):
-        new_stack = Stack(
+        """
+        Applies row_sharp_projection to every ZStack in the Hyperstack
+        :return: Image Stack in the direction perpendicular to z
+        """
+        sharp_stack = Stack(
             [z_stack.row_sharp_projection()[0] for z_stack in self.z_stacks]
         )
-        return new_stack, "foo"
+        return sharp_stack, "foo"
 
-    def piece_sharp_projection(self, piece_size):
+    def roi_sharp_projection(self, piece_size):
+        """
+        Applies roi_sharp_projection to every ZStack in the Hyperstack
+        :return: Image Stack in the direction perpendicular to z
+        """
         new_stack = Stack(
-            [z_stack.piece_sharp_projection(piece_size)[0] for z_stack in self.z_stacks]
+            [z_stack.roi_sharp_projection(piece_size)[0] for z_stack in self.z_stacks]
         )
         return new_stack, "foo"
-
-
-def plot_line(line: np.ndarray) -> None:
-    plt.plot(line)
-    plt.show()
-
-
-def plot_images(*images: np.ndarray) -> None:
-    for idx, img in enumerate(images):
-        img = img.astype(np.uint8)
-        if images[0].shape > DEFAULT_PLOT_SIZE:
-            img = cv2.resize(img, DEFAULT_PLOT_SIZE)
-        cv2.imshow(f"image {idx}", img)
-    cv2.waitKey()
 
 
 # Press the green button in the gutter to run the script.
@@ -210,7 +230,7 @@ if __name__ == "__main__":
         file_path=r"C:\Users\sbarr\Documents\PhD\Experiments\
         Nucleus\03-05-2021\Green03052021.tif",
     )
-    sharp_stack, _ = my_hyperstack.piece_sharp_projection(256)
+    sharp_stack, _ = my_hyperstack.roi_sharp_projection(256)
     # sharp_stack, _ = my_hyperstack.row_sharp_projection()
     sharp_stack.normalize()
     cv2.imwritemulti(

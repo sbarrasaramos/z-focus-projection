@@ -1,6 +1,6 @@
 """Test cases for the __main__ module."""
-import pytest
 from click.testing import CliRunner
+import pytest
 
 from z_focus_projection import __main__
 
